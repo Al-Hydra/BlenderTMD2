@@ -8,7 +8,7 @@ from .reader import readTMD2, readLDS
 from .tamLib.tmd2 import *
 import os, tempfile
 import numpy as np
-
+from .materials.shaders import shaders_dict
 
 class TMD2_IMPORTER_OT_IMPORT(Operator, ImportHelper):
     bl_label = "Import TMD2"
@@ -163,10 +163,10 @@ class importTMD2:
         for i, tm_mat in enumerate(self.tmd2.materials):
             tm_mat: TMD2Material
             
-            if tm_mat.shaderID == 'BSS1':
-                blender_mat = create_BSS1(f"{self.tmd2.name}_{i}", tm_mat, images_list)
+            if tm_mat.shaderID in shaders_dict:
+                blender_mat = shaders_dict[tm_mat.shaderID](f"{self.tmd2.name}_{i}", tm_mat, images_list)
             else:
-                blender_mat = bpy.data.materials.new(f"{self.tmd2.name}_{i}")
+                blender_mat = shaders_dict["Default"](f"{self.tmd2.name}_{i}", tm_mat, images_list)
             bmat_props = blender_mat.tmd2_material
             
             bmat_props.material_hash = str(tm_mat.hash)
@@ -302,7 +302,10 @@ class importTMD2:
                 
                 #face data
                 for tri in tmd_mesh.triangles:
-                    face = bm.faces.new([bm_verts[i] for i in tri])
+                    try:
+                        face = bm.faces.new([bm_verts[i] for i in tri])
+                    except:
+                        continue
                     face.smooth = True
                     face.material_index = tmd_mesh.materialIndex
                     
@@ -345,60 +348,6 @@ class importTMD2:
                 
             mesh.transform(YUP_TO_ZUP)
 
-
-def create_BSS1(mat_name="BSS1_Material", tm_material: TMD2Material = TMD2Material, textures = []):
-    path = os.path.dirname(os.path.realpath(__file__))
-    
-    material = bpy.data.materials.get('BSS1')
-    if not material:
-        material_path = f'{path}/materials/materials.blend'
-        with bpy.data.libraries.load(material_path, link = False) as (data_from, data_to):
-            data_to.materials = ['BSS1']
-        material = data_to.materials[0]
-    
-    material = material.copy()
-    material.name = mat_name
-    
-    tex1_node = material.node_tree.nodes.get('Texture 1')
-    if len(textures) >= 1:
-        tmat_texture: TMD2MatTexture = tm_material.textures[0]
-        texture = tmat_texture.texture
-        image = textures[texture.index]
-        tex1_node.image = image
-    
-    tex3_node = material.node_tree.nodes.get('Texture 3')
-    if len(textures) >= 3:
-        tmat_texture: TMD2MatTexture = tm_material.textures[2]
-        texture = tmat_texture.texture
-        image = textures[texture.index]
-        tex3_node.image = image
-        tex3_node.image.colorspace_settings.name = 'Non-Color'
-    
-    tex4_node = material.node_tree.nodes.get('Texture 4')
-    if len(textures) >= 4:
-        tmat_texture: TMD2MatTexture = tm_material.textures[3]
-        texture = tmat_texture.texture
-        image = textures[texture.index]
-        tex4_node.image = image
-    
-    tex5_node = material.node_tree.nodes.get('Texture 5')
-    if len(textures) >= 5:
-        tmat_texture: TMD2MatTexture = tm_material.textures[4]
-        texture = tmat_texture.texture
-        image = textures[texture.index]
-        tex5_node.image = image
-        tex5_node.image.colorspace_settings.name = 'Non-Color'
-    
-    tex7_node = material.node_tree.nodes.get('Texture 7')
-    if len(textures) >= 5:
-        tmat_texture: TMD2MatTexture = tm_material.textures[6]
-        texture = tmat_texture.texture
-        image = textures[texture.index]
-        tex7_node.image = image
-        tex7_node.image.colorspace_settings.name = 'Non-Color'
-    
-
-    return material
 
 
 def importLDS(file_path, return_tex = False):

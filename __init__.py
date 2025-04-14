@@ -4,7 +4,7 @@ bl_info = {
     "author" : "HydraBladeZ",
     "description" : "Importer/Exporter for Tamsoft TMD2 files",
     "blender" : (4, 2, 0),
-    "version" : (1, 2, 0),
+    "version" : (1, 0, 0),
     "location" : "View3D",
     "warning" : "",
     "category" : "Import"
