@@ -5,6 +5,7 @@ from bpy.props import (
     IntProperty,
     StringProperty,
     CollectionProperty,
+    BoolProperty,
     PointerProperty
 )
 
@@ -29,27 +30,152 @@ class TMD2MaterialTexture(PropertyGroup):
     )
 
 class TMD2MaterialProperties(PropertyGroup):
-    def update_count(self, context):
-        if self.param_count > len(self.param_values):
-            for _ in range(self.param_count - len(self.param_values)):
-                self.param_values.add()
-        elif self.param_count < len(self.param_values):
-            for _ in range(len(self.param_values) - self.param_count):
-                self.param_values.remove(len(self.param_values) - 1)
-
     material_hash: StringProperty(default= "0")
     shader_id: StringProperty()
 
-    param_count: IntProperty(update=update_count)
     param_values: CollectionProperty(type=TMD2ShaderParam)
     param_index: bpy.props.IntProperty()
 
     textures: CollectionProperty(type=TMD2MaterialTexture)
     texture_index: bpy.props.IntProperty()  
     
-    def init_data():
-        pass
+    unk: IntProperty()
     
+    def init_data(tm_mat):
+        pass
+
+class TMD2MeshProperties(PropertyGroup):
+    has_name: BoolProperty(default = 0)
+    has_hash: BoolProperty(default = 0)
+    
+    name: StringProperty()
+    name_hash: StringProperty()
+    unk: IntProperty()
+
+
+class TMD2TextureProperties(PropertyGroup):
+    texture_flags: IntProperty()
+
+class TMD2MaterialClipboard:
+    material_hash = ""
+    shader_id = ""
+    unk = 0
+    param_values = []
+    textures = []
+
+    @classmethod
+    def copy(cls, src):
+        cls.material_hash = src.material_hash
+        cls.shader_id = src.shader_id
+        cls.unk = src.unk
+        cls.param_values = [p.value for p in src.param_values]
+        cls.textures = [{
+            "texture_hash": t.texture_hash,
+            "width": t.width,
+            "height": t.height,
+            "value1": t.value1,
+            "value2": t.value2,
+            "value3": t.value3,
+            "image": t.image
+        } for t in src.textures]
+
+    @classmethod
+    def paste(cls, dst):
+        dst.material_hash = cls.material_hash
+        dst.shader_id = cls.shader_id
+        dst.unk = cls.unk
+
+        dst.param_values.clear()
+        for value in cls.param_values:
+            param = dst.param_values.add()
+            param.value = value
+
+        dst.textures.clear()
+        for t in cls.textures:
+            tex = dst.textures.add()
+            tex.texture_hash = t["texture_hash"]
+            tex.width = t["width"]
+            tex.height = t["height"]
+            tex.value1 = t["value1"]
+            tex.value2 = t["value2"]
+            tex.value3 = t["value3"]
+            tex.image = t["image"]
+
+
+class TMD2ParamClipboard:
+    param_values = []
+
+    @classmethod
+    def copy(cls, param_collection):
+        cls.param_values = [param.value for param in param_collection]
+
+    @classmethod
+    def paste(cls, param_collection):
+        param_collection.clear()
+        for val in cls.param_values:
+            new_param = param_collection.add()
+            new_param.value = val
+
+
+class TMD2_OT_CopyParams(bpy.types.Operator):
+    bl_idname = "tmd2.copy_params"
+    bl_label = "Copy All Shader Parameters"
+
+    def execute(self, context):
+        mat = context.material.tmd2_material
+        if not mat.param_values:
+            self.report({'WARNING'}, "No parameters to copy.")
+            return {'CANCELLED'}
+
+        TMD2ParamClipboard.copy(mat.param_values)
+        self.report({'INFO'}, f"Copied {len(mat.param_values)} parameters.")
+        return {'FINISHED'}
+
+
+class TMD2_OT_PasteParams(bpy.types.Operator):
+    bl_idname = "tmd2.paste_params"
+    bl_label = "Paste All Shader Parameters"
+
+    def execute(self, context):
+        mat = context.material.tmd2_material
+        if not TMD2ParamClipboard.param_values:
+            self.report({'WARNING'}, "No copied parameters to paste.")
+            return {'CANCELLED'}
+
+        TMD2ParamClipboard.paste(mat.param_values)
+        mat.param_index = min(mat.param_index, len(mat.param_values) - 1)
+        self.report({'INFO'}, f"Pasted {len(mat.param_values)} parameters.")
+        return {'FINISHED'}
+
+
+
+class TMD2_OT_CopyMaterialData(bpy.types.Operator):
+    bl_idname = "tmd2.copy_material_data"
+    bl_label = "Copy TMD2 Material Data"
+
+    def execute(self, context):
+        mat = context.material
+        if not mat or not hasattr(mat, "tmd2_material"):
+            self.report({'WARNING'}, "No TMD2 material to copy.")
+            return {'CANCELLED'}
+        TMD2MaterialClipboard.copy(mat.tmd2_material)
+        self.report({'INFO'}, "TMD2 material data copied.")
+        return {'FINISHED'}
+
+
+class TMD2_OT_PasteMaterialData(bpy.types.Operator):
+    bl_idname = "tmd2.paste_material_data"
+    bl_label = "Paste TMD2 Material Data"
+
+    def execute(self, context):
+        mat = context.material
+        if not mat or not hasattr(mat, "tmd2_material"):
+            self.report({'WARNING'}, "No TMD2 material to paste into.")
+            return {'CANCELLED'}
+        TMD2MaterialClipboard.paste(mat.tmd2_material)
+        self.report({'INFO'}, "TMD2 material data pasted.")
+        return {'FINISHED'}
+
 
 class TMD2_UL_Textures(bpy.types.UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
@@ -162,12 +288,34 @@ class TMD2_PT_MaterialPanel(Panel):
         layout = self.layout
         mat = context.material
         tmd2 = mat.tmd2_material
+        
+        row = layout.row(align=True)
+        row.operator("tmd2.copy_material_data", icon="COPYDOWN", text="Copy TMD2")
+        row.operator("tmd2.paste_material_data", icon="PASTEDOWN", text="Paste TMD2")
+        
+        row = layout.row(align=True)
+        row.operator("tmd2.copy_params", icon="COPYDOWN", text="Copy All Params")
+        row.operator("tmd2.paste_params", icon="PASTEDOWN", text="Paste All Params")
 
-        layout.prop(tmd2, "material_hash", text = "Material Hash")
-        layout.prop(tmd2, "shader_id", text = "Shader ID")
-        layout.prop(tmd2, "param_count", text = "Param Count")
+        row = layout.row()
+        col1 = row.column()
+        col2 = row.column()
+        
+        box1 = col1.box()
+        row = box1.row()
+        row.label(text="Material Hash:")
+        row = box1.row()
+        row.prop(tmd2, "material_hash", text = "")
+        row = box1.row()
+        row = box1.row() #this only done for spacing
+        row.label(text="Shader ID:")
+        row = box1.row()
+        row.prop(tmd2, "shader_id", text = "")
+        row = box1.row()
+        row = box1.row() #this only done for spacing
+        row.prop(tmd2, "unk", text = "Unknown")
 
-        box = layout.box()
+        box = col2.box()
         box.label(text="Shader Parameters:")
         
         row = box.row()
@@ -185,7 +333,8 @@ class TMD2_PT_MaterialPanel(Panel):
         box2.label(text="Textures:")
 
         row = box2.row()
-        row.template_ID_preview(tmd2.textures[tmd2.texture_index], 'image', hide_buttons=True)
+        if tmd2.textures:
+            row.template_ID_preview(tmd2.textures[tmd2.texture_index], 'image', hide_buttons=True)
         row.template_list("TMD2_UL_Textures", "", tmd2, "textures", tmd2, "texture_index")
 
         col = row.column(align=True)
@@ -194,12 +343,62 @@ class TMD2_PT_MaterialPanel(Panel):
         col.separator()
         col.operator("tmd2.texture_move", icon="TRIA_UP", text="").direction = 'UP'
         col.operator("tmd2.texture_move", icon="TRIA_DOWN", text="").direction = 'DOWN'
+        
+        row = box2.row()
+        row.prop(tmd2.textures[tmd2.texture_index], "value1",text = "Unknown 1")
+        row.prop(tmd2.textures[tmd2.texture_index], "value2",text = "Unknown 1")
 
+
+class TMD2_PT_MeshPanel(Panel):
+    bl_idname = 'OBJECT_PT_tmd2_mesh'
+    bl_label = 'TMD2 Mesh Properties'
+    bl_space_type = 'PROPERTIES'
+    bl_region_type = 'WINDOW'
+    bl_context = 'object'
+
+    @classmethod
+    def poll(cls, context):
+        return context.object is not None
+
+    def draw(self, context):
+        layout = self.layout
+        obj = context.object
+        tmd2mesh = obj.tmd2_mesh
+        
+        row = layout.row()
+        row.prop(tmd2mesh, "has_name", text = "Has Name")
+        row.prop(tmd2mesh, "has_hash", text = "Has Hash")
+        
+        row = layout.row()
+        row.prop(tmd2mesh, "name", text = "Name")
+        row.prop(tmd2mesh, "name_hash", text = "Name Hash")
+        row.prop(tmd2mesh, "unk", text = "Unknown")
+        
+class TMD2_PT_TexturePanel(Panel):
+    bl_idname = 'OBJECT_PT_tmd2_texture'
+    bl_label = 'TMD2 Texture Properties'
+    bl_space_type = 'PROPERTIES'
+    bl_region_type = 'WINDOW'
+    bl_context = 'object'
+
+    @classmethod
+    def poll(cls, context):
+        return context.object and context.object.name.startswith("TMD2 TEXTURE PROPERTIES")
+
+    def draw(self, context):
+        layout = self.layout
+        obj = context.object
+        tmd2tex = obj.tmd2_texture
+        
+        row = layout.row()
+        row.prop(tmd2tex, "texture_flags")
 
 material_properties = [
     TMD2ShaderParam,
     TMD2MaterialTexture,
     TMD2MaterialProperties,
+    TMD2MeshProperties,
+    TMD2TextureProperties,
     TMD2_UL_Textures,
     TMD2_OT_TextureAdd,
     TMD2_OT_TextureRemove,
@@ -208,8 +407,15 @@ material_properties = [
     TMD2_OT_ParamAdd,
     TMD2_OT_ParamRemove,
     TMD2_OT_ParamMove,
+    TMD2_OT_CopyMaterialData,
+    TMD2_OT_PasteMaterialData,
+    TMD2_OT_CopyParams,
+    TMD2_OT_PasteParams,
+    
 ]
 
 material_panels = [
-    TMD2_PT_MaterialPanel
+    TMD2_PT_MaterialPanel,
+    TMD2_PT_MeshPanel,
+    TMD2_PT_TexturePanel
 ]

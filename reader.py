@@ -1,4 +1,4 @@
-from .tamLib.pzze import readPZZE
+from .tamLib.pzze import *
 from .tamLib.utils.PyBinaryReader.binary_reader import *
 from .tamLib.tmd2 import *
 from .tamLib.lds import *
@@ -53,5 +53,52 @@ def readLDS(file: str) -> LDS:
     return lds
 
 
+def writeTMD2(tmd2, output, compress = False):
+    br = BinaryReader()
+    br.write_struct(tmd2)
+    
+    filebytes = bytes(br.buffer())
+    
+    if compress:
+        pzze = PZZEFile()
+        pzze.fileFormat = 'tmd2'
+        pzze.decompressedData = filebytes
+        
+        br = BinaryReader()
+        br.write_struct(pzze)
+        
+        filebytes = bytes(br.buffer())
+    
+    with open(output, "wb") as f:
+        f.write(filebytes)
+
+def writeLDS(lds, output, compress = False):
+    br = BinaryReader()
+    br.write_struct(lds)
+    filebytes = bytes(br.buffer())
+    if compress:
+        pzze = PZZEFile()
+        pzze.fileFormat = 'lds'
+        pzze.decompressedData = filebytes
+        
+        br = BinaryReader()
+        br.write_struct(pzze)
+        
+        filebytes = bytes(br.buffer())
+    
+    with open(output, "wb") as f:
+        f.write(filebytes)
+
 if __name__ == "__main__":
-    pass
+    path = r"G:\Dev\BlenderTMD2\pl000_cos00_00.tmd2"
+    output = r"G:\Dev\BlenderTMD2\test.tmd2"
+    
+    tmd = readTMD2(path)
+    
+    bw = BinaryReader()
+    bw.write_struct(tmd)
+    
+    with open(output, "wb") as f:
+        f.write(bytes(bw.buffer()))
+    
+    print("done")

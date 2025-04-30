@@ -1,11 +1,12 @@
 import bpy, bmesh, math, mathutils
-from mathutils import Vector, Quaternion, Matrix
+from mathutils import Vector, Quaternion, Matrix, Euler
 from math import radians
 from bpy_extras.io_utils import ImportHelper
 from bpy.props import StringProperty, BoolProperty, IntProperty, CollectionProperty
 from bpy.types import Operator
 from .reader import readTMD2, readLDS
 from .tamLib.tmd2 import *
+from .tamLib.lds import LDS
 import os, tempfile
 import numpy as np
 from .materials.shaders import shaders_dict
@@ -85,16 +86,38 @@ class DropTMD2(Operator):
     filter_glob: StringProperty(default="*.tmd2", options={"HIDDEN"}) # type: ignore
     filename_ext = ".tmd2"
     filepath: StringProperty(subtype='FILE_PATH') # type: ignore
+
     def execute(self, context):
+        # Collect LDS files
+        lds_files = {}
+        for file in os.listdir(self.directory):
+            if file.lower().endswith(".lds"):
+                base_name, _ = os.path.splitext(file.lower())
+                lds_files[base_name] = os.path.join(self.directory, file)
+
         for file in self.files:
-        
-            self.filepath = os.path.join(self.directory, file.name)
+            tmd2_path = os.path.join(self.directory, file.name)
+            base_name, _ = os.path.splitext(file.name.lower())
 
-            tmd2 = readTMD2(self.filepath)
+            # Try to find matching LDS
+            texture_path = ""
+            if base_name in lds_files:
+                texture_path = lds_files[base_name]
+                print(f"✅ Using matching LDS file for {base_name}: {texture_path}")
+            else:
+                fallback = os.path.join(self.directory, base_name + ".lds")
+                if os.path.exists(fallback):
+                    texture_path = fallback
+                    print(f"📁 Found fallback LDS file for {base_name}: {texture_path}")
+                else:
+                    print(f"❌ No LDS found for {base_name}, importing TMD2 without texture.")
 
-            importer = importTMD2(self, self.filepath, self.as_keywords(ignore=("filter_glob",)), tmd2, context)
+            # Import TMD2
+            tmd2 = readTMD2(tmd2_path)
+            importer = importTMD2(self, tmd2_path, self.as_keywords(ignore=("filter_glob",)), tmd2, context)
+            importer.texture_path = texture_path
             importer.read(context)
-        
+
         return {'FINISHED'}
 
 
@@ -156,8 +179,15 @@ class importTMD2:
     
     
     def read(self, context):
+        collection = bpy.data.collections.new(f"{self.tmd2.name}")
+        context.collection.children.link(collection)
+        
         #import and process materials and textures
-        images_list = importLDS(self.texture_path, True) if self.texture_path else []
+        if self.texture_path:
+            lds = importLDS(self.texture_path, True) 
+            images_list = lds.images
+        else:
+            images_list = []
         
         materials_dict = {}
         for i, tm_mat in enumerate(self.tmd2.materials):
@@ -171,61 +201,111 @@ class importTMD2:
             
             bmat_props.material_hash = str(tm_mat.hash)
             bmat_props.shader_id = tm_mat.shaderID
-            bmat_props.param_count = tm_mat.shaderParamsCount
-            for i in range(tm_mat.shaderParamsCount):
-                bmat_props.param_values[i].value = tm_mat.shaderParams[i]
             
+            bmat_props.param_values.clear()
+            for i in range(tm_mat.shaderParamsCount):
+                param = bmat_props.param_values.add()
+                param.value = tm_mat.shaderParams[i]
+            
+            bmat_props.textures.clear()
             for tmat_texture in tm_mat.textures:
                 tmat_texture: TMD2MatTexture
                 tm_texture: TMD2Texture = tmat_texture.texture
                 t = bmat_props.textures.add()
                 t.texture_hash = str(tm_texture.hash)
+                t.value1 = tmat_texture.unk1
+                t.value2 = tmat_texture.unk2
+                
                 if images_list:
                     t.image = images_list[tm_texture.index]
+            
+            bmat_props.unk = tm_mat.unk
             
             materials_dict[tm_mat] = blender_mat
         
         # Create a new mesh
         YUP_TO_ZUP = Matrix.Rotation(radians(90), 4, 'X')        
         
+        bones_to_pose = {}
+        
         if self.tmd2.modelFlags & 0x2000:
             #skeleton data
             armature = bpy.data.armatures.new(self.tmd2.name)
             armature_obj = bpy.data.objects.new(self.tmd2.name, armature)
-            context.collection.objects.link(armature_obj)
+            collection.objects.link(armature_obj)
             bpy.context.view_layer.objects.active = armature_obj
             bpy.ops.object.mode_set(mode='EDIT')
             
             armature_obj.data.display_type = 'STICK'
             
             for tmbone in self.tmd2.bones:
+                tmbone: TMD2Bone
+                
                 bbone = armature_obj.data.edit_bones.new(tmbone.name)
                 
                 matrix = Matrix(tmbone.matrix).transposed().inverted()
-                matrix = YUP_TO_ZUP @ matrix
+                matrix_up = YUP_TO_ZUP @ matrix
                 
-                bbone.matrix = matrix
+                bbone.matrix = matrix_up
                 bbone.tail += Vector((0, 0, 0.01)) # Set the tail position to be 1 unit along the Z axis
-
-            for bone in self.tmd2.bones:
-                if bone.parentIndex != -1:
-                    blender_bone = armature_obj.data.edit_bones[bone.name]
-                    parent_bone = armature_obj.data.edit_bones[self.tmd2.bones[bone.parentIndex].name]
-                    blender_bone.parent = parent_bone
+                
+                #set parent
+                if tmbone.parentIndex != -1:
+                    parent_bone = armature_obj.data.edit_bones[self.tmd2.bones[tmbone.parentIndex].name]
+                    bbone.parent = parent_bone
+                
+                if tmbone.extra > -1:
+                    bones_to_pose[bbone.name] =  tmbone.offset
+                
+                #set custom props
+                bbone["hash"] = str(tmbone.hash)
+                bbone["extra"] = tmbone.extra
+                bbone["offset"] = tmbone.offset
+                bbone["posed_loc"] = tmbone.posedLocation
+                bbone["unk1"] = tmbone.unk1
+                bbone["matrix"] = matrix
+                bbone["matrix_up"] = matrix_up
             
             bpy.ops.object.mode_set(mode='OBJECT')
+            
+        #pose the armature
+        if armature and bones_to_pose:
+            #rotate bones
+            for bname, rotation in bones_to_pose.items():
+                p = armature_obj.pose.bones[bname]
+                if not p.parent:
+                    continue
+
+                axes = p.bone.matrix_local.to_3x3().transposed()
+                space = p.parent.matrix.to_3x3()
+                x, y, z = (space @ v for v in axes)
+
+                p.rotation_mode = 'QUATERNION'
+                p.rotation_quaternion = Quaternion(z, rotation[2]) @ Quaternion(y, rotation[1]) @ Quaternion(x, rotation[0])
         
         
         for tmd_model in self.tmd2.models:
-            
-        
+            tmd_model: TMD2Model
             mesh = bpy.data.meshes.new(tmd_model.name)
             mesh_obj = bpy.data.objects.new(tmd_model.name, mesh)
-            context.collection.objects.link(mesh_obj)
+            collection.objects.link(mesh_obj)
+            
+            #add mesh properties
+            mesh_props = mesh_obj.tmd2_mesh
+            if tmd_model.hashFlag:
+                mesh_props.has_hash = True
+                mesh_props.name_hash = str(tmd_model.hash)
+            
+            if tmd_model.nameFlag & 4:
+                mesh_props.has_name = True
+                mesh_props.name = tmd_model.name
+
             
             #create materials
-            for mesh_mat in tmd_model.materials:
+            model_mats = {}
+            for i, mesh_mat in enumerate(tmd_model.materials):
                 mesh.materials.append(materials_dict[mesh_mat])
+                model_mats[mesh_mat] = i
             
 
             # Create a new bmesh object
@@ -273,30 +353,37 @@ class importTMD2:
                 color_layers.append(col2_layer)
             
             for tmd_mesh in tmd_model.meshes:
-                
+                tmd_mesh: TMD2Submesh
                 #vertex data
                 bm_verts = []
-                for vertex in tmd_mesh.vertices:
-                    v = bm.verts.new(vertex.position)
-                    v.normal = vertex.normal
-                    bm_verts.append(v)
-                    custom_normals.append(vertex.normal)
-                    
-                    boneIDs = vertex.boneIDs + vertex.boneIDs2
-                    boneWeights = vertex.boneWeights + vertex.boneWeights2
-                    
-                    v[vgroup_layer][tmd_mesh.indexTable[boneIDs[0]]] = 0
-                    v[vgroup_layer][tmd_mesh.indexTable[boneIDs[1]]] = 0
-                    v[vgroup_layer][tmd_mesh.indexTable[boneIDs[2]]] = 0
-                    v[vgroup_layer][tmd_mesh.indexTable[boneIDs[3]]] = 0
-                    v[vgroup_layer][tmd_mesh.indexTable[boneIDs[4]]] = 0
-                    v[vgroup_layer][tmd_mesh.indexTable[boneIDs[5]]] = 0
-                    v[vgroup_layer][tmd_mesh.indexTable[boneIDs[6]]] = 0
-                    v[vgroup_layer][tmd_mesh.indexTable[boneIDs[7]]] = 0
-                    
-                    
-                    for boneID, weight in zip(boneIDs, boneWeights):
-                        v[vgroup_layer][tmd_mesh.indexTable[boneID]] += weight 
+                if self.tmd2.modelFlags & 0x2000:
+                    for vertex in tmd_mesh.vertices:
+                        v = bm.verts.new(vertex.position)
+                        v.normal = vertex.normal
+                        bm_verts.append(v)
+                        custom_normals.append(vertex.normal)
+                        
+                        boneIDs = vertex.boneIDs + vertex.boneIDs2
+                        boneWeights = vertex.boneWeights + vertex.boneWeights2
+                        
+                        v[vgroup_layer][tmd_mesh.indexTable[boneIDs[0]]] = 0
+                        v[vgroup_layer][tmd_mesh.indexTable[boneIDs[1]]] = 0
+                        v[vgroup_layer][tmd_mesh.indexTable[boneIDs[2]]] = 0
+                        v[vgroup_layer][tmd_mesh.indexTable[boneIDs[3]]] = 0
+                        v[vgroup_layer][tmd_mesh.indexTable[boneIDs[4]]] = 0
+                        v[vgroup_layer][tmd_mesh.indexTable[boneIDs[5]]] = 0
+                        v[vgroup_layer][tmd_mesh.indexTable[boneIDs[6]]] = 0
+                        v[vgroup_layer][tmd_mesh.indexTable[boneIDs[7]]] = 0
+                        
+                        
+                        for boneID, weight in zip(boneIDs, boneWeights):
+                            v[vgroup_layer][tmd_mesh.indexTable[boneID]] += weight 
+                else:
+                    for vertex in tmd_mesh.vertices:
+                        v = bm.verts.new(vertex.position)
+                        v.normal = vertex.normal
+                        bm_verts.append(v)
+                        custom_normals.append(vertex.normal)
 
                 bm.verts.ensure_lookup_table()
                 
@@ -307,7 +394,7 @@ class importTMD2:
                     except:
                         continue
                     face.smooth = True
-                    face.material_index = tmd_mesh.materialIndex
+                    face.material_index = model_mats[tmd_mesh.material]
                     
                     for i, uv in enumerate(uv_layers):
                         if i == 0:
@@ -377,10 +464,12 @@ def importLDS(file_path, return_tex = False):
         
         images_list.append(image)
     
+    lds.images = images_list
+    
     if return_tex:
-        return images_list
+        return lds
 
 def menu_func_import(self, context):
     self.layout.operator(TMD2_IMPORTER_OT_IMPORT.bl_idname,
-                        text='TamSoft TMD2 (.tmd2)',
+                        text='TamSoft TMD2 Importer (.tmd2)',
                         icon='IMPORT')
