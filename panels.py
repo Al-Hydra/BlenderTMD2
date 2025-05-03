@@ -183,6 +183,7 @@ class TMD2_UL_Textures(bpy.types.UIList):
             row = layout.row(align=True)
             row.prop(item, "texture_hash", text="Texture Hash", emboss=False)
             row.prop_search(item, "image", bpy.data, "images", text="")
+            row.operator("tmd2.open_dds", text="", icon='FILE_FOLDER')
         elif self.layout_type == 'GRID':
             layout.alignment = 'CENTER'
             layout.label(text="", icon='TEXTURE')
@@ -345,8 +346,9 @@ class TMD2_PT_MaterialPanel(Panel):
         col.operator("tmd2.texture_move", icon="TRIA_DOWN", text="").direction = 'DOWN'
         
         row = box2.row()
-        row.prop(tmd2.textures[tmd2.texture_index], "value1",text = "Unknown 1")
-        row.prop(tmd2.textures[tmd2.texture_index], "value2",text = "Unknown 1")
+        if tmd2.textures:
+            row.prop(tmd2.textures[tmd2.texture_index], "value1",text = "Unknown 1")
+            row.prop(tmd2.textures[tmd2.texture_index], "value2",text = "Unknown 1")
 
 
 class TMD2_PT_MeshPanel(Panel):
@@ -393,6 +395,58 @@ class TMD2_PT_TexturePanel(Panel):
         row = layout.row()
         row.prop(tmd2tex, "texture_flags")
 
+
+
+class TMD2_Texture_OT_OpenDDS(bpy.types.Operator):
+    bl_idname = "tmd2.open_dds"
+    bl_label = "Open DDS Texture"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    # Filepath property for the file browser
+    filepath: StringProperty(
+        name="DDS File Path",
+        description="Filepath used for opening a DDS image",
+        subtype='FILE_PATH'
+    )
+
+    # Filter to show only .dds files
+    filter_glob: StringProperty(
+        default="*.dds",
+        options={'HIDDEN'}
+    )
+
+    def invoke(self, context, event):
+        # Open the file selector
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
+
+    def execute(self, context):
+        mat = context.material.tmd2_material
+        if not mat:
+            self.report({'ERROR'}, "No TMD2 material found on active context")
+            return {'CANCELLED'}
+
+        # Load the selected DDS image
+        try:
+            img = bpy.data.images.load(self.filepath)
+        except Exception as e:
+            self.report({'ERROR'}, f"Failed to load image: {e}")
+            return {'CANCELLED'}
+
+        # Assign or append the loaded image to the material's texture slots
+        # Adjust this based on how textures are stored in tmd2_material
+        if hasattr(mat, 'textures') and mat.textures:
+            mat.textures[mat.texture_index].image = img
+        else:
+            # Fallback: create a new texture slot and assign
+            tex_slot = mat.texture_slots.add()
+            tex_slot.texture = bpy.data.textures.new(name="DDS_Texture", type='IMAGE')
+            tex_slot.texture.image = img
+
+        return {'FINISHED'}
+            
+
+
 material_properties = [
     TMD2ShaderParam,
     TMD2MaterialTexture,
@@ -411,6 +465,7 @@ material_properties = [
     TMD2_OT_PasteMaterialData,
     TMD2_OT_CopyParams,
     TMD2_OT_PasteParams,
+    TMD2_Texture_OT_OpenDDS
     
 ]
 

@@ -4,12 +4,15 @@ from math import radians
 from bpy_extras.io_utils import ImportHelper
 from bpy.props import StringProperty, BoolProperty, IntProperty, CollectionProperty
 from bpy.types import Operator
-from .reader import readTMD2, readLDS
+from .reader import *
 from .tamLib.tmd2 import *
 from .tamLib.lds import LDS
 import os, tempfile
 import numpy as np
 from .materials.shaders import shaders_dict
+import json
+
+hashes = json.load(open(os.path.join(os.path.dirname(__file__), "hashes.json")))
 
 class TMD2_IMPORTER_OT_IMPORT(Operator, ImportHelper):
     bl_label = "Import TMD2"
@@ -60,7 +63,7 @@ class TMD2_IMPORTER_OT_IMPORT(Operator, ImportHelper):
 
             # Read and import TMD2
             tmd2 = readTMD2(tmd2_path)
-            importer = importTMD2(self, tmd2_path, self.as_keywords(ignore=("filter_glob",)), tmd2, context)
+            importer = importTMD2(self, tmd2_path, self.as_keywords(ignore=("filter_glob",)), tmd2, {})
 
             # Store texture path for later use
             importer.texture_path = texture_path
@@ -114,7 +117,7 @@ class DropTMD2(Operator):
 
             # Import TMD2
             tmd2 = readTMD2(tmd2_path)
-            importer = importTMD2(self, tmd2_path, self.as_keywords(ignore=("filter_glob",)), tmd2, context)
+            importer = importTMD2(self, tmd2_path, self.as_keywords(ignore=("filter_glob",)), tmd2, {})
             importer.texture_path = texture_path
             importer.read(context)
 
@@ -133,6 +136,55 @@ class TMD2_FH_import(bpy.types.FileHandler):
     
     def draw():
         pass
+
+
+class DropTMD(Operator):
+    """Allows TMD files to be dropped into the viewport to import them"""
+    bl_idname = "import_scene.drop_tmd"
+    bl_label = "Import TMD"
+
+    files: CollectionProperty(type=bpy.types.OperatorFileListElement, options={'HIDDEN', 'SKIP_SAVE'}) # type: ignore
+    directory: StringProperty(subtype='DIR_PATH', options={'HIDDEN', 'SKIP_SAVE'}) # type: ignore
+    filter_glob: StringProperty(default="*.tmd2", options={"HIDDEN"}) # type: ignore
+    filename_ext = ".tmd2"
+    filepath: StringProperty(subtype='FILE_PATH') # type: ignore
+
+    def execute(self, context):
+        # Collect DDS files
+        dds_files = {}
+        hashed_names = {}
+        for file in os.listdir(self.directory):
+            if file.lower().endswith(".dds"):
+                base_name, _ = os.path.splitext(file)
+                hashed_name = tamCRC32(base_name)
+                dds_files[base_name] = os.path.join(self.directory, file)
+                hashed_names[hashed_name] = base_name
+        
+
+        for file in self.files:
+            tmd2_path = os.path.join(self.directory, file.name)
+
+            # Import TMD2
+            tmd = readTMD(tmd2_path, hashed_names)
+            importer = importTMD2(self, tmd2_path, self.as_keywords(ignore=("filter_glob",)), tmd, dds_files)
+            importer.read(context)
+
+        return {'FINISHED'}
+
+
+class TMD_FH_import(bpy.types.FileHandler):
+    bl_idname = "TMD_FH_import"
+    bl_label = "File handler for TMD files"
+    bl_import_operator = "import_scene.drop_tmd"
+    bl_file_extensions = ".tmd"
+
+    @classmethod
+    def poll_drop(cls, context):
+        return (context.area and context.area.type == 'VIEW_3D')
+    
+    def draw():
+        pass
+    
 
 class DropLDS(Operator):
     """Allows LDS files to be dropped into the viewport to import them"""
@@ -168,7 +220,7 @@ class LDS_FH_import(bpy.types.FileHandler):
 
 
 class importTMD2:
-    def __init__(self, operator: Operator, filepath, import_settings: dict, tmd2file, context):
+    def __init__(self, operator: Operator, filepath, import_settings: dict, tmd2file, dds_paths = {}):
         self.operator = operator
         self.filepath = filepath
         self.texture_path = ""
@@ -176,6 +228,7 @@ class importTMD2:
             setattr(self, key, value)
         
         self.tmd2: TMD2 = tmd2file
+        self.dds_paths = dds_paths
     
     
     def read(self, context):
@@ -186,8 +239,38 @@ class importTMD2:
         if self.texture_path:
             lds = importLDS(self.texture_path, True) 
             images_list = lds.images
+        elif self.dds_paths:
+            #load dds files using the same name in the tmd file
+            images_list = []
+            for i, texture in enumerate(self.tmd2.textures):
+                
+                #we'll try to find it in bpy.data.images first
+                image = bpy.data.images.get(texture.name)
+                if image:
+                    images_list.append(image)
+                
+                elif texture.name in self.dds_paths:
+                    #try to get the texture name from the dds_paths dict
+                    tex_path = self.dds_paths[texture.name]
+                    #load the dds file
+                    image = bpy.data.images.load(tex_path)
+                    image.pack()
+                    image.use_fake_user = True
+                    images_list.append(image)
+                    
+                else:
+                    # texture not found, we'll create a placeholder image
+                    tex_name = f"{self.tmd2.name}_{i}"
+                    image = bpy.data.images.new(tex_name, width=texture.width, height=texture.height)
+                    images_list.append(image)
         else:
             images_list = []
+            for i, texture in enumerate(self.tmd2.textures):
+                tex_name = f"{self.tmd2.name}_{i}.dds"
+                #we'll try to find it in bpy.data.images first
+                image = bpy.data.images.get(tex_name)
+                if image:
+                    images_list.append(image)
         
         materials_dict = {}
         for i, tm_mat in enumerate(self.tmd2.materials):
@@ -241,6 +324,8 @@ class importTMD2:
             for tmbone in self.tmd2.bones:
                 tmbone: TMD2Bone
                 
+                if str(tmbone.hash) in hashes:
+                    tmbone.name = hashes[str(tmbone.hash)]
                 bbone = armature_obj.data.edit_bones.new(tmbone.name)
                 
                 matrix = Matrix(tmbone.matrix).transposed().inverted()
@@ -251,7 +336,7 @@ class importTMD2:
                 
                 #set parent
                 if tmbone.parentIndex != -1:
-                    parent_bone = armature_obj.data.edit_bones[self.tmd2.bones[tmbone.parentIndex].name]
+                    parent_bone = armature_obj.data.edit_bones[tmbone.parentIndex]
                     bbone.parent = parent_bone
                 
                 if tmbone.extra > -1:

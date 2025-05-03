@@ -44,13 +44,39 @@ def create_BSS1(mat_name="BSS1_Material", tm_material: TMD2Material = TMD2Materi
         tex5_node.image = image
         tex5_node.image.colorspace_settings.name = 'Non-Color'
     
+    tex5_node = material.node_tree.nodes.get('Texture 6')
+    if len(textures) >= 6:
+        tmat_texture: TMD2MatTexture = tm_material.textures[5]
+        texture = tmat_texture.texture
+        image = textures[texture.index]
+        tex5_node.image = image
+        tex5_node.image.colorspace_settings.name = 'Non-Color'
+    
     tex7_node = material.node_tree.nodes.get('Texture 7')
-    if len(textures) >= 5:
+    if len(textures) >= 7:
         tmat_texture: TMD2MatTexture = tm_material.textures[6]
         texture = tmat_texture.texture
         image = textures[texture.index]
         tex7_node.image = image
         tex7_node.image.colorspace_settings.name = 'Non-Color'
+    
+    try:
+    
+        node_group = material.node_tree.nodes.get('BSS1')
+        if node_group:
+            node_group.inputs["Shadow Intensity"].default_value = tm_material.shaderParams[0]
+            node_group.inputs["Shadow Color"].default_value = (tm_material.shaderParams[1],tm_material.shaderParams[2],tm_material.shaderParams[3],1)
+            
+            node_group.inputs["Specular Size"].default_value = tm_material.shaderParams[28]
+            node_group.inputs["Specular Color"].default_value = (tm_material.shaderParams[29],tm_material.shaderParams[30],tm_material.shaderParams[31],1)
+            
+            node_group.inputs["Color Burn Opacity"].default_value = tm_material.shaderParams[10]
+            node_group.inputs["Color Burn Intensity"].default_value = tm_material.shaderParams[11]
+            
+            node_group.inputs["Alpha Clip Threshold"].default_value = tm_material.shaderParams[24]
+            
+    except:
+        pass
     
 
     return material

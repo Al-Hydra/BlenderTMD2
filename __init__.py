@@ -35,6 +35,8 @@ def register():
     bpy.utils.register_class(TMD2_EXPORTER_OT_EXPORT)
     bpy.utils.register_class(DropTMD2)
     bpy.utils.register_class(TMD2_FH_import)
+    bpy.utils.register_class(DropTMD)
+    bpy.utils.register_class(TMD_FH_import)
     bpy.utils.register_class(DropLDS)
     bpy.utils.register_class(LDS_FH_import)
 
@@ -55,6 +57,8 @@ def unregister():
     bpy.utils.unregister_class(TMD2_EXPORTER_OT_EXPORT)
     bpy.utils.unregister_class(DropTMD2)
     bpy.utils.unregister_class(TMD2_FH_import)
+    bpy.utils.unregister_class(DropTMD)
+    bpy.utils.unregister_class(TMD_FH_import)
     bpy.utils.unregister_class(DropLDS)
     bpy.utils.unregister_class(LDS_FH_import)
 
