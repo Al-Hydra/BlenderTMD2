@@ -47,10 +47,13 @@ class TMD2MaterialProperties(PropertyGroup):
 class TMD2MeshProperties(PropertyGroup):
     has_name: BoolProperty(default = 0)
     has_hash: BoolProperty(default = 0)
-    
+    has_extra: BoolProperty(default = 0)
     name: StringProperty()
     name_hash: StringProperty()
     unk: IntProperty()
+    unk1: IntProperty()
+    unk2: IntProperty()
+    unk3: IntProperty()
 
 
 class TMD2TextureProperties(PropertyGroup):
@@ -370,11 +373,17 @@ class TMD2_PT_MeshPanel(Panel):
         row = layout.row()
         row.prop(tmd2mesh, "has_name", text = "Has Name")
         row.prop(tmd2mesh, "has_hash", text = "Has Hash")
+        row.prop(tmd2mesh, "has_extra", text = "Has Extra Values")
         
         row = layout.row()
         row.prop(tmd2mesh, "name", text = "Name")
         row.prop(tmd2mesh, "name_hash", text = "Name Hash")
         row.prop(tmd2mesh, "unk", text = "Unknown")
+        if tmd2mesh.has_extra:
+            row = layout.row()
+            row.prop(tmd2mesh, "unk1", text = "Unknown 1")
+            row.prop(tmd2mesh, "unk2", text = "Unknown 2")
+            row.prop(tmd2mesh, "unk3", text = "Unknown 3")
         
 class TMD2_PT_TexturePanel(Panel):
     bl_idname = 'OBJECT_PT_tmd2_texture'

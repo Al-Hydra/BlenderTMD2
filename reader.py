@@ -100,6 +100,17 @@ def writeTMD2(tmd2, output, compress = False):
     with open(output, "wb") as f:
         f.write(filebytes)
 
+
+def writeTMD(tmd, output):
+    br = BinaryReader()
+    br.write_struct(tmd)
+    
+    filebytes = bytes(br.buffer())
+    
+    with open(output, "wb") as f:
+        f.write(filebytes)
+        
+
 def writeLDS(lds, output, compress = False):
     br = BinaryReader()
     br.write_struct(lds)
