@@ -109,10 +109,33 @@ class TMD2_EXPORTER_OT_EXPORT(Operator, ExportHelper):
 
         ZUP_TO_YUP = Matrix.Rotation(radians(-90), 4, 'X')
         YUP_3X3 = ZUP_TO_YUP.to_3x3()
+        
+        #get textures object
+        props_obj = None
+        for obj in collection.objects:
+            if "#TMD PROPERTIES" in obj.name:
+                props_obj = obj
+                break
+        if not props_obj:
+            #we'll set those values to 0x00
+            self.tmd.flag1 = 0x00
+            self.tmd.flag2 = 0x00
+            self.tmd.animFlag = 0x00
+            self.afterImageValue = 0x00
+        else:
+            self.tmd.flag1 = props_obj.tmd2_props.flag1
+            self.tmd.flag2 = props_obj.tmd2_props.flag2
+            self.tmd.animFlag = props_obj.tmd2_props.flag3
+            self.tmd.afterImageValue = props_obj.tmd2_props.after_image
 
-        bbmin, bbmax = get_collection_bbox(collection)
+
+        bbmin, bbmax, bbcorners = get_collection_bbox(collection)
         self.tmd.boundingBox = list(bbmin) + list(bbmax)
-
+        bboxcorners = TMD2BoundingBox()
+        bboxcorners.corners = bbcorners
+        self.tmd.BBoxCorners.append(bboxcorners)
+        
+        
         armature, meshes = None, []
         for obj in collection.objects:
             if obj.type == "ARMATURE":
@@ -220,6 +243,9 @@ class TMD2_EXPORTER_OT_EXPORT(Operator, ExportHelper):
             min_corner = Vector((min(v[i] for v in world_bbox) for i in range(3)))
             max_corner = Vector((max(v[i] for v in world_bbox) for i in range(3)))
             model.boundingBox = list(min_corner) + list(max_corner)
+            bboxcorners = TMD2BoundingBox()
+            bboxcorners.corners = [list(world_bbox[i]) for i in [6, 2, 7, 3, 4, 0, 5, 1]]
+            self.tmd.BBoxCorners.append(bboxcorners)
 
             vgroup_names = {i: g.name for i, g in enumerate(mesh_obj.vertex_groups)}
             if vgroup_names:
@@ -300,11 +326,7 @@ class TMD2_EXPORTER_OT_EXPORT(Operator, ExportHelper):
 
         self.tmd.materials = list(materials.values())
         self.tmd.textures = list(textures.values())
-        self.tmd.unkSections = []
-        for i in range(len(self.tmd.models) + 1):
-            unkSec = TMD2Unk()
-            unkSec.values = [0] * 24
-            self.tmd.unkSections.append(unkSec)
+
         writeTMD2(self.tmd, self.filepath, self.compress_files)
         
         #export textures
@@ -313,15 +335,6 @@ class TMD2_EXPORTER_OT_EXPORT(Operator, ExportHelper):
             
             lds = LDS()
             lds.textures = [tex.data for tex in textures.values()]
-            
-            #get textures object
-            texobj = None
-            for obj in collection.objects:
-                if obj.name.startswith("TMD2 TEXTURE PROPERTIES"):
-                    texobj = obj
-            
-            if texobj:
-                lds.unk = texobj.tmd2_texture.texture_flags
             
             writeLDS(lds, tex_path, self.compress_files)
 
@@ -712,9 +725,23 @@ def get_collection_bbox(collection):
     if not all_world_points:
         return None
 
+    #create 8 points from the bounding box
+
     min_corner = Vector((min(v[i] for v in all_world_points) for i in range(3)))
     max_corner = Vector((max(v[i] for v in all_world_points) for i in range(3)))
-    return min_corner, max_corner
+    
+    corners = [
+        ( max_corner.x, max_corner.y, min_corner.z ),  # corner[0]
+        ( min_corner.x, max_corner.y, min_corner.z ),  # corner[1]
+        ( max_corner.x, max_corner.y, max_corner.z ),  # corner[2]
+        ( min_corner.x, max_corner.y, max_corner.z ),  # corner[3]
+        ( max_corner.x, min_corner.y, min_corner.z ),  # corner[4]
+        ( min_corner.x, min_corner.y, min_corner.z ),  # corner[5]
+        ( max_corner.x, min_corner.y, max_corner.z ),  # corner[6]
+        ( min_corner.x, min_corner.y, max_corner.z ),  # corner[7]
+    ]
+    
+    return min_corner, max_corner, corners
 
 
 

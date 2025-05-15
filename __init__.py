@@ -15,7 +15,7 @@ import bpy
 from .importer import *
 
 from .exporter import *
-from .panels import material_properties, material_panels, TMD2MaterialProperties, TMD2MeshProperties, TMD2TextureProperties
+from .panels import material_properties, material_panels, TMD2MaterialProperties, TMD2MeshProperties, TMD2Properties
 from bpy.props import PointerProperty
 
 classes = [
@@ -29,7 +29,7 @@ def register():
         bpy.utils.register_class(cls)
     bpy.types.Material.tmd2_material = PointerProperty(type=TMD2MaterialProperties)
     bpy.types.Object.tmd2_mesh = PointerProperty(type=TMD2MeshProperties)
-    bpy.types.Object.tmd2_texture = PointerProperty(type=TMD2TextureProperties)
+    bpy.types.Object.tmd2_props = PointerProperty(type=TMD2Properties)
     
     bpy.utils.register_class(TMD2_IMPORTER_OT_IMPORT)
     bpy.utils.register_class(TMD2_EXPORTER_OT_EXPORT)
@@ -39,6 +39,10 @@ def register():
     bpy.utils.register_class(TMD_FH_import)
     bpy.utils.register_class(DropLDS)
     bpy.utils.register_class(LDS_FH_import)
+    bpy.utils.register_class(CAT_FH_import)
+    bpy.utils.register_class(DropCAT)
+    bpy.utils.register_class(TMO_FH_import)
+    bpy.utils.register_class(DropTMO)
 
     bpy.types.TOPBAR_MT_file_import.append(menu_func_import)
     bpy.types.TOPBAR_MT_file_export.append(menu_func_export)
@@ -51,7 +55,7 @@ def unregister():
     
     del bpy.types.Material.tmd2_material
     del bpy.types.Object.tmd2_mesh
-    del bpy.types.Object.tmd2_texture
+    del bpy.types.Object.tmd2_props
     
     bpy.utils.unregister_class(TMD2_IMPORTER_OT_IMPORT)
     bpy.utils.unregister_class(TMD2_EXPORTER_OT_EXPORT)
@@ -61,6 +65,10 @@ def unregister():
     bpy.utils.unregister_class(TMD_FH_import)
     bpy.utils.unregister_class(DropLDS)
     bpy.utils.unregister_class(LDS_FH_import)
+    bpy.utils.unregister_class(CAT_FH_import)
+    bpy.utils.unregister_class(DropCAT)
+    bpy.utils.unregister_class(TMO_FH_import)
+    bpy.utils.unregister_class(DropTMO)
 
     bpy.types.TOPBAR_MT_file_import.remove(menu_func_import)
     bpy.types.TOPBAR_MT_file_export.remove(menu_func_export)

@@ -3,6 +3,8 @@ from .tamLib.utils.PyBinaryReader.binary_reader import *
 from .tamLib.tmd import *
 from .tamLib.tmd2 import *
 from .tamLib.lds import *
+from .tamLib.cats import *
+from .tamLib.tmo import *
 import os
 
 
@@ -79,6 +81,51 @@ def readLDS(file: str) -> LDS:
     br = BinaryReader(lds_data, Endian.LITTLE)    
     lds = br.read_struct(LDS, None, file_name)
     return lds
+
+
+def readCATS(file: str) -> CATS:
+    with open(file, 'rb') as f:
+        magic = f.read(4).decode('utf-8')
+        f.seek(0)  # Reset file pointer to the beginning for reading the CATS data
+        if magic == "PZZE":
+            pzze = readPZZE(file)
+            
+            cats_data = pzze.decompress()
+            if cats_data is None:
+                raise ValueError("Failed to decompress CAT data.")
+            if not cats_data.startswith(b'CATS'):
+                raise ValueError("Invalid CATS magic.")
+            
+            
+        else:
+            cats_data = f.read()
+            
+        br = BinaryReader(cats_data, Endian.LITTLE)
+        cats = br.read_struct(CATS)
+        return cats
+
+
+def readTMO(file: str) -> TMO:
+    with open(file, 'rb') as f:
+        magic = f.read(4).decode('utf-8')
+        f.seek(0)  # Reset file pointer to the beginning for reading the CATS data
+        if magic == "PZZE":
+            pzze = readPZZE(file)
+            
+            tmo_data = pzze.decompress()
+            if tmo_data is None:
+                raise ValueError("Failed to decompress TMO data.")
+            if not tmo_data.startswith(b'tmo1'):
+                raise ValueError("Invalid TMO magic.")
+            
+        else:
+            tmo_data = f.read()
+        
+        file_name = os.path.splitext(os.path.basename(file))[0]
+        br = BinaryReader(tmo_data, Endian.LITTLE)
+        tmo = br.read_struct(TMO)
+        tmo.name = file_name
+        return tmo
 
 
 def writeTMD2(tmd2, output, compress = False):

@@ -56,8 +56,13 @@ class TMD2MeshProperties(PropertyGroup):
     unk3: IntProperty()
 
 
-class TMD2TextureProperties(PropertyGroup):
-    texture_flags: IntProperty()
+class TMD2Properties(PropertyGroup):
+    flag1: IntProperty()
+    flag2: IntProperty()
+    flag3: IntProperty()
+    after_image: IntProperty()
+    transform_animation: PointerProperty(type=bpy.types.Action)
+    
 
 class TMD2MaterialClipboard:
     material_hash = ""
@@ -363,7 +368,7 @@ class TMD2_PT_MeshPanel(Panel):
 
     @classmethod
     def poll(cls, context):
-        return context.object is not None
+        return context.object and context.object.type == 'MESH'
 
     def draw(self, context):
         layout = self.layout
@@ -385,24 +390,29 @@ class TMD2_PT_MeshPanel(Panel):
             row.prop(tmd2mesh, "unk2", text = "Unknown 2")
             row.prop(tmd2mesh, "unk3", text = "Unknown 3")
         
-class TMD2_PT_TexturePanel(Panel):
-    bl_idname = 'OBJECT_PT_tmd2_texture'
-    bl_label = 'TMD2 Texture Properties'
+class TMD2_PT_Panel(Panel):
+    bl_idname = 'OBJECT_PT_tmd2_panel'
+    bl_label = 'TMD2 Properties'
     bl_space_type = 'PROPERTIES'
     bl_region_type = 'WINDOW'
     bl_context = 'object'
 
     @classmethod
     def poll(cls, context):
-        return context.object and context.object.name.startswith("TMD2 TEXTURE PROPERTIES")
+        return context.object.name.startswith("#TMD PROPERTIES")
 
     def draw(self, context):
         layout = self.layout
         obj = context.object
-        tmd2tex = obj.tmd2_texture
+        tmd2_props = obj.tmd2_props
         
         row = layout.row()
-        row.prop(tmd2tex, "texture_flags")
+        row.prop(tmd2_props, "flag1", text = "Flag 1")
+        row.prop(tmd2_props, "flag2", text = "Flag 2")
+        row.prop(tmd2_props, "flag3", text = "Flag 3")
+        row = layout.row()
+        row.prop(tmd2_props, "after_image", text = "After Image Value")
+        row.prop(tmd2_props, "transform_animation", text = "Transform Animation")
 
 
 
@@ -457,11 +467,11 @@ class TMD2_Texture_OT_OpenDDS(bpy.types.Operator):
 
 
 material_properties = [
+    TMD2Properties,
     TMD2ShaderParam,
     TMD2MaterialTexture,
     TMD2MaterialProperties,
     TMD2MeshProperties,
-    TMD2TextureProperties,
     TMD2_UL_Textures,
     TMD2_OT_TextureAdd,
     TMD2_OT_TextureRemove,
@@ -479,7 +489,7 @@ material_properties = [
 ]
 
 material_panels = [
+    TMD2_PT_Panel,
     TMD2_PT_MaterialPanel,
-    TMD2_PT_MeshPanel,
-    TMD2_PT_TexturePanel
+    TMD2_PT_MeshPanel
 ]

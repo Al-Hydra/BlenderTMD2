@@ -152,8 +152,8 @@ def create_BHA1(mat_name="BHA1_Material", tm_material: TMD2Material = TMD2Materi
     
     node_group = material.node_tree.nodes.get('BHA1')
     if node_group:
-        node_group.inputs["Hair Color 1"].default_value = (tm_material.shaderParams[12],tm_material.shaderParams[13],tm_material.shaderParams[14],1)
-        node_group.inputs["Hair Color 2"].default_value = (tm_material.shaderParams[9],tm_material.shaderParams[10],tm_material.shaderParams[11],1)
+        node_group.inputs["Hair Base Color"].default_value = (tm_material.shaderParams[12],tm_material.shaderParams[13],tm_material.shaderParams[14],1)
+        node_group.inputs["Hair Shine Color"].default_value = (tm_material.shaderParams[9],tm_material.shaderParams[10],tm_material.shaderParams[11],1)
     
 
     return material

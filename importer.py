@@ -6,7 +6,9 @@ from bpy.props import StringProperty, BoolProperty, IntProperty, CollectionPrope
 from bpy.types import Operator
 from .reader import *
 from .tamLib.tmd2 import *
+from .tamLib.tmo import *
 from .tamLib.lds import LDS
+from .tamLib.utils.PyBinaryReader.binary_reader import *
 import os, tempfile
 import numpy as np
 from .materials.shaders import shaders_dict
@@ -21,7 +23,7 @@ class TMD2_IMPORTER_OT_IMPORT(Operator, ImportHelper):
 
     files: CollectionProperty(type=bpy.types.OperatorFileListElement, options={'HIDDEN', 'SKIP_SAVE'}) # type: ignore
     directory: StringProperty(subtype='DIR_PATH', options={'HIDDEN', 'SKIP_SAVE'}) # type: ignore
-    filter_glob: StringProperty(default="*.tmd2;*.lds", options={"HIDDEN"}) # type: ignore
+    filter_glob: StringProperty(default="*.tmd2;*.lds;*.tmd", options={"HIDDEN"}) # type: ignore
     filename_ext = ".tmd2"
     filepath: StringProperty(subtype='FILE_PATH') # type: ignore
     auto_find_textures: BoolProperty(default=True) # type: ignore
@@ -30,6 +32,7 @@ class TMD2_IMPORTER_OT_IMPORT(Operator, ImportHelper):
     def execute(self, context):
         # Split files by type
         tmd2_files = {}
+        tmd_files = {}
         lds_files = {}
 
         for file in self.files:
@@ -40,35 +43,62 @@ class TMD2_IMPORTER_OT_IMPORT(Operator, ImportHelper):
                 tmd2_files[base_name] = full_path
             elif ext == ".lds":
                 lds_files[base_name] = full_path
+            elif ext == ".tmd":
+                tmd_files[base_name] = full_path
 
         print(f"🟦 TMD2 files: {list(tmd2_files.keys())}")
+        print(f"🟩 TMD files: {list(tmd_files.keys())}")
         print(f"🟨 LDS files: {list(lds_files.keys())}")
 
-        for base_name, tmd2_path in tmd2_files.items():
-            texture_path = ""
 
-            # Step 1: Check LDS dict
-            if base_name in lds_files:
-                texture_path = lds_files[base_name]
-                print(f"✅ Using matching LDS file for {base_name}: {texture_path}")
+        if tmd2_files:
+            for base_name, tmd2_path in tmd2_files.items():
+                texture_path = ""
 
-            else:
-                # Step 2: Check filesystem in same directory
-                fallback_path = os.path.join(self.directory, base_name + ".lds")
-                if os.path.exists(fallback_path):
-                    texture_path = fallback_path
-                    print(f"📁 Found fallback LDS file for {base_name}: {texture_path}")
+                # Step 1: Check LDS dict
+                if base_name in lds_files:
+                    texture_path = lds_files[base_name]
+                    print(f"✅ Using matching LDS file for {base_name}: {texture_path}")
+
                 else:
-                    print(f"❌ No LDS found for {base_name}, importing TMD2 without texture.")
+                    # Step 2: Check filesystem in same directory
+                    fallback_path = os.path.join(self.directory, base_name + ".lds")
+                    if os.path.exists(fallback_path):
+                        texture_path = fallback_path
+                        print(f"📁 Found fallback LDS file for {base_name}: {texture_path}")
+                    else:
+                        print(f"❌ No LDS found for {base_name}, importing TMD2 without texture.")
 
-            # Read and import TMD2
-            tmd2 = readTMD2(tmd2_path)
-            importer = importTMD2(self, tmd2_path, self.as_keywords(ignore=("filter_glob",)), tmd2, {})
+                # Read and import TMD2
+                tmd2 = readTMD2(tmd2_path)
+                importer = importTMD2(self, tmd2_path, self.as_keywords(ignore=("filter_glob",)), tmd2, {})
 
-            # Store texture path for later use
-            importer.texture_path = texture_path
+                # Store texture path for later use
+                importer.texture_path = texture_path
 
-            importer.read(context)
+                importer.read(context)
+        
+        
+        if tmd_files:
+            # Collect DDS files
+            dds_files = {}
+            hashed_names = {}
+            for file in os.listdir(self.directory):
+                if file.lower().endswith(".dds"):
+                    base_name, _ = os.path.splitext(file)
+                    hashed_name = tamCRC32(base_name)
+                    dds_files[base_name] = os.path.join(self.directory, file)
+                    hashed_names[hashed_name] = base_name
+
+            # Import TMD files
+        
+            for base_name, tmd_path in tmd_files.items():
+                # Read and import TMD
+                tmd = readTMD(tmd_path, hashed_names)
+                importer = importTMD(self, tmd_path, self.as_keywords(ignore=("filter_glob",)), tmd, dds_files)
+                importer.read(context)
+            
+            
 
         return {'FINISHED'}
 
@@ -218,6 +248,172 @@ class LDS_FH_import(bpy.types.FileHandler):
         pass
 
 
+class DropCAT(Operator):
+    """Allows cat files to be dropped into the viewport to import them"""
+    bl_idname = "import_scene.drop_cat"
+    bl_label = "Import cat"
+
+    files: CollectionProperty(type=bpy.types.OperatorFileListElement, options={'HIDDEN', 'SKIP_SAVE'}) # type: ignore
+    directory: StringProperty(subtype='DIR_PATH', options={'HIDDEN', 'SKIP_SAVE'}) # type: ignore
+    filter_glob: StringProperty(default="*.tmd2", options={"HIDDEN"}) # type: ignore
+    filename_ext = ".cat"
+    filepath: StringProperty(subtype='FILE_PATH') # type: ignore
+    def execute(self, context):
+        for file in self.files:
+            self.filepath = os.path.join(self.directory, file.name)
+
+            # Read and import CAT
+            cat = readCATS(self.filepath)
+            for c in cat.subCATS:
+                if c.name == "mdl.cat":
+                    for i in range(c.catCount):
+                        mdl = c.subData[i]
+                        name = c.subNames[i]
+                        # Read and import TMD2
+                        br = BinaryReader(mdl, Endian.LITTLE)
+                        tmd2 = br.read_struct(TMD2)
+                        print(name)
+                        tmd2.name = name
+                        importer = importTMD2(self, self.filepath, self.as_keywords(ignore=("filter_glob",)), tmd2, {})
+                        importer.read(context)
+        
+        return {'FINISHED'}
+
+class CAT_FH_import(bpy.types.FileHandler):
+    bl_idname = "CAT_FH_import"
+    bl_label = "File handler for CAT files"
+    bl_import_operator = "import_scene.drop_cat"
+    bl_file_extensions = ".cat"
+
+    @classmethod
+    def poll_drop(cls, context):
+        return (context.area and context.area.type == 'VIEW_3D')
+    
+    def draw():
+        pass
+
+
+class DropTMO(Operator):
+    """Allows cat files to be dropped into the viewport to import them"""
+    bl_idname = "import_scene.drop_tmo"
+    bl_label = "Import tmo"
+
+    files: CollectionProperty(type=bpy.types.OperatorFileListElement, options={'HIDDEN', 'SKIP_SAVE'}) # type: ignore
+    directory: StringProperty(subtype='DIR_PATH', options={'HIDDEN', 'SKIP_SAVE'}) # type: ignore
+    filter_glob: StringProperty(default="*.tmo", options={"HIDDEN"}) # type: ignore
+    filename_ext = ".tmo"
+    filepath: StringProperty(subtype='FILE_PATH') # type: ignore
+    def execute(self, context):
+        for file in self.files:
+            self.filepath = os.path.join(self.directory, file.name)
+
+            tmofile = readTMO(self.filepath)
+            
+            importer = importTMO(self, self.filepath, self.as_keywords(ignore=("filter_glob",)), tmofile)
+            importer.read(context)
+        
+        return {'FINISHED'}
+
+class TMO_FH_import(bpy.types.FileHandler):
+    bl_idname = "TMO_FH_import"
+    bl_label = "File handler for TMO files"
+    bl_import_operator = "import_scene.drop_tmo"
+    bl_file_extensions = ".tmo"
+
+    @classmethod
+    def poll_drop(cls, context):
+        return (context.area and context.area.type == 'VIEW_3D')
+    
+    def draw():
+        pass
+
+
+class importTMO:
+    def __init__(self, operator: Operator, filepath, import_settings: dict, tmofile):
+        self.operator = operator
+        self.filepath = filepath
+        for key, value in import_settings.items():
+            setattr(self, key, value)
+        
+        self.tmo: TMO = tmofile
+    
+    
+    def read(self, context):
+        target = bpy.context.object
+        if not target or target.type != 'ARMATURE':
+            self.operator.report({'ERROR'}, "No armature selected.")
+            return {'CANCELLED'}
+        if not target.data:
+            self.operator.report({'ERROR'}, "No armature data found.")
+            return {'CANCELLED'}
+        
+        
+        index_dict = {0: "location",
+                      1: "location",
+                      2: "location",
+                      3: "rotation_euler",
+                      4: "rotation_euler",
+                      5: "rotation_euler",
+                      6: "scale",
+                      7: "scale",
+                      8: "scale"}
+        
+        
+        # Create a new action
+        action = bpy.data.actions.new(name=f"{self.tmo.name}_action")
+        target.animation_data_create()
+        target.animation_data.action = action
+        
+        #create a hash dict for bones
+        bone_hashes = {}
+        for bone in target.data.bones:
+            if "hash" in bone.keys():
+                bone_hashes[bone["hash"]] = bone.name
+            else:
+                bone_hashes[tamCRC32(bone.name)] = bone.name
+            
+        
+        # loop over bones, get their hash and find the corresponding bone in the armature
+        for bidx, tmbone in enumerate(self.tmo.hashes):
+            bone = target.data.bones.get(bone_hashes.get(str(tmbone), ""))
+            if not bone:
+                self.operator.report({'ERROR'}, f"Bone {tmbone} not found in armature.")
+                continue
+            else:
+                target.pose.bones[bone.name].rotation_mode = "XYZ"
+            index = 0
+            
+            for i in range(9):
+                # Create a new F-Curve for each property
+                path = index_dict[i]
+                fcurve = action.fcurves.new(data_path=f'pose.bones["{bone.name}"].{path}', index=index)
+                index += 1
+                if index == 3:
+                    index = 0
+                # Set the keyframes
+                start_frame = self.tmo.offsets[i + bidx * 9]["startFrame"]
+                frame_count = self.tmo.offsets[i + bidx * 9]["frameCount"]
+                #print(bidx)
+                if path == "location":
+                    for j in range(frame_count):
+                        frame_dict = self.tmo.keyframes[start_frame + j]
+                        frame, value = next(iter(frame_dict.items()))
+                        
+                        # Add keyframe points
+                        fcurve.keyframe_points.insert(frame, value * 0.001)
+                        fcurve.update()
+                
+                elif path == "rotation_euler":
+                    for j in range(frame_count):
+                        frame_dict = self.tmo.keyframes[start_frame + j]
+                        frame, value = next(iter(frame_dict.items()))
+                        
+                        # Add keyframe points
+                        fcurve.keyframe_points.insert(frame, float(value))
+                        fcurve.update()
+                
+
+
 class importTMD2:
     def __init__(self, operator: Operator, filepath, import_settings: dict, tmd2file, dds_paths = {}):
         self.operator = operator
@@ -233,6 +429,15 @@ class importTMD2:
     def read(self, context):
         collection = bpy.data.collections.new(f"{self.tmd2.name}")
         context.collection.children.link(collection)
+        
+        #Create an empty object to hold important flags
+        empty = bpy.data.objects.new(f"#TMD PROPERTIES [{self.tmd2.name}]", None)
+        empty.empty_display_size = 0.01
+        empty.tmd2_props.flag1 = self.tmd2.flag1
+        empty.tmd2_props.flag2 = self.tmd2.flag2
+        empty.tmd2_props.flag3 = self.tmd2.animFlag
+        empty.tmd2_props.after_image = self.tmd2.afterImageValue
+        collection.objects.link(empty)
         
         #import and process materials and textures
         if self.texture_path:
@@ -352,20 +557,20 @@ class importTMD2:
             
             bpy.ops.object.mode_set(mode='OBJECT')
             
-        #pose the armature
-        if armature and bones_to_pose:
-            #rotate bones
-            for bname, rotation in bones_to_pose.items():
-                p = armature_obj.pose.bones[bname]
-                if not p.parent:
-                    continue
+            #pose the armature
+            if armature and bones_to_pose:
+                #rotate bones
+                for bname, rotation in bones_to_pose.items():
+                    p = armature_obj.pose.bones[bname]
+                    if not p.parent:
+                        continue
 
-                axes = p.bone.matrix_local.to_3x3().transposed()
-                space = p.parent.matrix.to_3x3()
-                x, y, z = (space @ v for v in axes)
+                    axes = p.bone.matrix_local.to_3x3().transposed()
+                    space = p.parent.matrix.to_3x3()
+                    x, y, z = (space @ v for v in axes)
 
-                p.rotation_mode = 'QUATERNION'
-                p.rotation_quaternion = Quaternion(z, rotation[2]) @ Quaternion(y, rotation[1]) @ Quaternion(x, rotation[0])
+                    p.rotation_mode = 'QUATERNION'
+                    p.rotation_quaternion = Quaternion(z, rotation[2]) @ Quaternion(y, rotation[1]) @ Quaternion(x, rotation[0])
         
         
         for tmd_model in self.tmd2.models:
@@ -518,6 +723,7 @@ class importTMD2:
             
                 
             mesh.transform(YUP_TO_ZUP)
+            
 
 
 
@@ -607,7 +813,6 @@ class importTMD:
         # Create a new mesh
         YUP_TO_ZUP = Matrix.Rotation(radians(90), 4, 'X')        
         
-        bones_to_pose = {}
         
         if self.tmd.modelFlags & 0x2000:
             #skeleton data
@@ -637,9 +842,6 @@ class importTMD:
                     parent_bone = armature_obj.data.edit_bones[tmbone.parentIndex]
                     bbone.parent = parent_bone
                 
-                if tmbone.extra > -1:
-                    bones_to_pose[bbone.name] =  tmbone.offset
-                
                 #set custom props
                 bbone["hash"] = str(tmbone.hash)
                 bbone["extra"] = tmbone.extra
@@ -651,21 +853,6 @@ class importTMD:
             
             bpy.ops.object.mode_set(mode='OBJECT')
             
-        #pose the armature
-        if armature and bones_to_pose:
-            #rotate bones
-            for bname, rotation in bones_to_pose.items():
-                p = armature_obj.pose.bones[bname]
-                if not p.parent:
-                    continue
-
-                axes = p.bone.matrix_local.to_3x3().transposed()
-                space = p.parent.matrix.to_3x3()
-                x, y, z = (space @ v for v in axes)
-
-                p.rotation_mode = 'QUATERNION'
-                p.rotation_quaternion = Quaternion(z, rotation[2]) @ Quaternion(y, rotation[1]) @ Quaternion(x, rotation[0])
-        
         
         for tmd_model in self.tmd.models:
             tmd_model: TMDModel
