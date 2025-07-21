@@ -12,6 +12,7 @@ from .tamLib.utils.PyBinaryReader.binary_reader import *
 import os, tempfile
 import numpy as np
 from .materials.shaders import shaders_dict
+from time import perf_counter
 import json
 
 hashes = json.load(open(os.path.join(os.path.dirname(__file__), "hashes.json")))
@@ -128,6 +129,9 @@ class DropTMD2(Operator):
                 base_name, _ = os.path.splitext(file.lower())
                 lds_files[base_name] = os.path.join(self.directory, file)
 
+
+        start_time = perf_counter()
+
         for file in self.files:
             tmd2_path = os.path.join(self.directory, file.name)
             base_name, _ = os.path.splitext(file.name.lower())
@@ -150,6 +154,10 @@ class DropTMD2(Operator):
             importer = importTMD2(self, tmd2_path, self.as_keywords(ignore=("filter_glob",)), tmd2, {})
             importer.texture_path = texture_path
             importer.read(context)
+            
+        end_time = perf_counter()
+        elapsed_time = end_time - start_time
+        self.report({'INFO'}, f"Imported {len(self.files)} TMD2 files in {elapsed_time:.2f} seconds.")
 
         return {'FINISHED'}
 

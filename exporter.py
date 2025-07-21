@@ -121,7 +121,7 @@ class TMD2_EXPORTER_OT_EXPORT(Operator, ExportHelper):
             self.tmd.flag1 = 0x00
             self.tmd.flag2 = 0x00
             self.tmd.animFlag = 0x00
-            self.afterImageValue = 0x00
+            self.tmd.afterImageValue = 0x00
         else:
             self.tmd.flag1 = props_obj.tmd2_props.flag1
             self.tmd.flag2 = props_obj.tmd2_props.flag2
@@ -165,10 +165,12 @@ class TMD2_EXPORTER_OT_EXPORT(Operator, ExportHelper):
             tmd2_mat.shaderParams = [p.value for p in mat_props.param_values]
             tmd2_mat.textures = []
             for i, tex in enumerate(mat_props.textures):
-                t2tex = textures.get(int(tex.texture_hash))
+                #t2tex = textures.get(int(tex.texture_hash))
+                t2tex = textures.get(tamCRC32(tex.image.name) if tex.image else 0)
                 if not t2tex:
                     t2tex = TMD2Texture()
-                    t2tex.hash = int(tex.texture_hash)
+                    #t2tex.hash = int(tex.texture_hash)
+                    t2tex.hash = tamCRC32(tex.image.name) if tex.image else 0
                     t2tex.width, t2tex.height = tex.image.size if tex.image else (0, 0)
                     tex.image.pack()
                     t2tex.data = tex.image.packed_file.data
@@ -177,7 +179,8 @@ class TMD2_EXPORTER_OT_EXPORT(Operator, ExportHelper):
                     textures[t2tex.hash] = t2tex
                 t2mattex = TMD2MatTexture()
                 t2mattex.texture = t2tex
-                t2mattex.textureHash = int(tex.texture_hash)
+               # t2mattex.textureHash = int(tex.texture_hash)
+                t2mattex.textureHash = tamCRC32(tex.image.name) if tex.image else 0
                 t2mattex.unk1 = tex.value1
                 t2mattex.unk2 = tex.value2
                 t2mattex.slot = i
