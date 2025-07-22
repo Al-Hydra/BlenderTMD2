@@ -706,13 +706,13 @@ class importTMD2:
                     uv0_list.extend(uv_flat.flatten())
                 if self.tmd2.modelFlags & 0x20:
                     # 2. UV1
-                    uvs = mesh_vertices["uv1"]
+                    uvs = mesh_vertices["uv2"]
                     uv_flat = uvs[tmd_mesh.triangles]
                     uv_flat[..., 1] = 1.0 - uv_flat[..., 1]
                     uv1_list.extend(uv_flat.flatten())
                 if self.tmd2.modelFlags & 0x40:
                     # 3. UV2
-                    uvs = mesh_vertices["uv2"]
+                    uvs = mesh_vertices["uv3"]
                     uv_flat = uvs[tmd_mesh.triangles]
                     uv_flat[..., 1] = 1.0 - uv_flat[..., 1]
                     uv2_list.extend(uv_flat.flatten())
