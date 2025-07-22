@@ -12,9 +12,10 @@ from .tamLib.utils.PyBinaryReader.binary_reader import *
 import os, tempfile
 import numpy as np
 from .materials.shaders import shaders_dict
+from collections import defaultdict
 from time import perf_counter
 import json
-
+from cProfile import Profile
 hashes = json.load(open(os.path.join(os.path.dirname(__file__), "hashes.json")))
 
 class TMD2_IMPORTER_OT_IMPORT(Operator, ImportHelper):
@@ -150,7 +151,14 @@ class DropTMD2(Operator):
                     print(f"❌ No LDS found for {base_name}, importing TMD2 without texture.")
 
             # Import TMD2
+            #prfl = Profile()
+            #prfl.enable()
+
             tmd2 = readTMD2(tmd2_path)
+
+            #prfl.disable()
+            #prfl.print_stats(sort="cumtime")
+
             importer = importTMD2(self, tmd2_path, self.as_keywords(ignore=("filter_glob",)), tmd2, {})
             importer.texture_path = texture_path
             importer.read(context)
@@ -649,82 +657,99 @@ class importTMD2:
                 col2_layer = bm.loops.layers.color.new(f"Color2")
                 color_layers.append(col2_layer)
             
+            uv0_list = []
+            uv1_list = []
+            uv2_list = []
+            color1_list = []
+            color2_list = []
+            
             for tmd_mesh in tmd_model.meshes:
                 tmd_mesh: TMD2Submesh
-                #vertex data
-                bm_verts = []
-                if self.tmd2.modelFlags & 0x2000:
-                    for vertex in tmd_mesh.vertices:
-                        v = bm.verts.new(vertex.position)
-                        v.normal = vertex.normal
-                        bm_verts.append(v)
-                        custom_normals.append(vertex.normal)
-                        
-                        boneIDs = vertex.boneIDs + vertex.boneIDs2
-                        boneWeights = vertex.boneWeights + vertex.boneWeights2
-                        
-                        v[vgroup_layer][tmd_mesh.indexTable[boneIDs[0]]] = 0
-                        v[vgroup_layer][tmd_mesh.indexTable[boneIDs[1]]] = 0
-                        v[vgroup_layer][tmd_mesh.indexTable[boneIDs[2]]] = 0
-                        v[vgroup_layer][tmd_mesh.indexTable[boneIDs[3]]] = 0
-                        v[vgroup_layer][tmd_mesh.indexTable[boneIDs[4]]] = 0
-                        v[vgroup_layer][tmd_mesh.indexTable[boneIDs[5]]] = 0
-                        v[vgroup_layer][tmd_mesh.indexTable[boneIDs[6]]] = 0
-                        v[vgroup_layer][tmd_mesh.indexTable[boneIDs[7]]] = 0
-                        
-                        
-                        for boneID, weight in zip(boneIDs, boneWeights):
-                            v[vgroup_layer][tmd_mesh.indexTable[boneID]] += weight 
-                else:
-                    for vertex in tmd_mesh.vertices:
-                        v = bm.verts.new(vertex.position)
-                        v.normal = vertex.normal
-                        bm_verts.append(v)
-                        custom_normals.append(vertex.normal)
-
-                bm.verts.ensure_lookup_table()
                 
-                #face data
+                mesh_vertices = self.tmd2.vertices[tmd_mesh.vertexIndices]
+                
+                bm_verts = []
+                if self.tmd2.modelFlags & 0x8000:
+                    bone_ids = np.concatenate([mesh_vertices["boneIDs"], mesh_vertices["boneIDs2"]], axis=1)
+                    bone_weights = np.concatenate([mesh_vertices["boneWeights"], mesh_vertices["boneWeights2"]], axis=1)
+                else:
+                    bone_ids = mesh_vertices["boneIDs"]
+                    bone_weights = mesh_vertices["boneWeights"]
+                
+                
+                bm_verts = [bm.verts.new(vertex["position"]) for vertex in mesh_vertices]
+                
+                
+                if self.tmd2.modelFlags & 0x400:
+                    for i, v in enumerate(bm_verts):
+                        for boneID, weight in zip(bone_ids[i], bone_weights[i]):
+                            v[vgroup_layer][tmd_mesh.indexTable[boneID]] = weight
+                
+                bm.verts.ensure_lookup_table()
+
                 for tri in tmd_mesh.triangles:
                     try:
                         face = bm.faces.new([bm_verts[i] for i in tri])
-                    except:
-                        continue
-                    face.smooth = True
-                    face.material_index = model_mats[tmd_mesh.material]
+                        face.smooth = True
+                        face.material_index = model_mats[tmd_mesh.material]
+                    except ValueError:
+                        # face exists already, skip
+                        pass
+                
+                custom_normals.extend(self.tmd2.vertices[tmd_mesh.vertexIndices]["normal"][:, :3].tolist())
+                
+                if self.tmd2.modelFlags & 0x10:
+                    # 1. UV0
+                    uvs = mesh_vertices["uv"]
+                    uv_flat = uvs[tmd_mesh.triangles]
+                    uv_flat[..., 1] = 1.0 - uv_flat[..., 1]
+                    uv0_list.extend(uv_flat.flatten())
+                if self.tmd2.modelFlags & 0x20:
+                    # 2. UV1
+                    uvs = mesh_vertices["uv1"]
+                    uv_flat = uvs[tmd_mesh.triangles]
+                    uv_flat[..., 1] = 1.0 - uv_flat[..., 1]
+                    uv1_list.extend(uv_flat.flatten())
+                if self.tmd2.modelFlags & 0x40:
+                    # 3. UV2
+                    uvs = mesh_vertices["uv2"]
+                    uv_flat = uvs[tmd_mesh.triangles]
+                    uv_flat[..., 1] = 1.0 - uv_flat[..., 1]
+                    uv2_list.extend(uv_flat.flatten())
+                if self.tmd2.modelFlags & 0x80:
+                    # 4. Color1
+                    colors = mesh_vertices["color"]
+                    color_flat = colors[tmd_mesh.triangles]
+                    color1_list.extend(color_flat.flatten())
+                if self.tmd2.modelFlags & 0x200:
+                    # 5. Color2
+                    colors = mesh_vertices["color2"]
+                    color_flat = colors[tmd_mesh.triangles]
+                    color2_list.extend(color_flat.flatten())
                     
-                    for i, uv in enumerate(uv_layers):
-                        if i == 0:
-                            face.loops[0][uv].uv = (tmd_mesh.vertices[tri[0]].uv[0], 1 - tmd_mesh.vertices[tri[0]].uv[1])
-                            face.loops[1][uv].uv = (tmd_mesh.vertices[tri[1]].uv[0], 1 - tmd_mesh.vertices[tri[1]].uv[1])
-                            face.loops[2][uv].uv = (tmd_mesh.vertices[tri[2]].uv[0], 1 - tmd_mesh.vertices[tri[2]].uv[1])
-                        elif i == 1:
-                            face.loops[0][uv].uv = (tmd_mesh.vertices[tri[0]].uv2[0], 1 - tmd_mesh.vertices[tri[0]].uv2[1])
-                            face.loops[1][uv].uv = (tmd_mesh.vertices[tri[1]].uv2[0], 1 - tmd_mesh.vertices[tri[1]].uv2[1])
-                            face.loops[2][uv].uv = (tmd_mesh.vertices[tri[2]].uv2[0], 1 - tmd_mesh.vertices[tri[2]].uv2[1])
-                        elif i == 2:
-                            face.loops[0][uv].uv = (tmd_mesh.vertices[tri[0]].uv3[0], 1 - tmd_mesh.vertices[tri[0]].uv3[1])
-                            face.loops[1][uv].uv = (tmd_mesh.vertices[tri[1]].uv3[0], 1 - tmd_mesh.vertices[tri[1]].uv3[1])
-                            face.loops[2][uv].uv = (tmd_mesh.vertices[tri[2]].uv3[0], 1 - tmd_mesh.vertices[tri[2]].uv3[1])
-                        
-                    
-                    for col_idx, col in enumerate(color_layers):
-                        if col_idx == 0:
-                            face.loops[0][col] = [x for x in tmd_mesh.vertices[tri[0]].color]
-                            face.loops[1][col] = [x for x in tmd_mesh.vertices[tri[1]].color]
-                            face.loops[2][col] = [x for x in tmd_mesh.vertices[tri[2]].color]
-                        elif col_idx == 1:
-                            face.loops[0][col] = [x for x in tmd_mesh.vertices[tri[0]].color2]
-                            face.loops[1][col] = [x for x in tmd_mesh.vertices[tri[1]].color2]
-                            face.loops[2][col] = [x for x in tmd_mesh.vertices[tri[2]].color2]
-
-                bm.verts.ensure_lookup_table()
-            
+                
             bm.to_mesh(mesh)
             bm.free()
             if self.tmd2.modelFlags & 0x4:
                 mesh.normals_split_custom_set_from_vertices(custom_normals)
             
+            if uv0_list:
+                uv0_layer = mesh.uv_layers[0]
+                uv0_layer.data.foreach_set("uv", uv0_list)
+                
+            if uv1_list:
+                uv1_layer = mesh.uv_layers[1]
+                uv1_layer.data.foreach_set("uv", uv1_list)
+            if uv2_list:
+                uv2_layer = mesh.uv_layers[2]
+                uv2_layer.data.foreach_set("uv", uv2_list)
+            if color1_list:
+                col1_layer = mesh.vertex_colors[0]
+                col1_layer.data.foreach_set("color", color1_list)
+            if color2_list:
+                col2_layer = mesh.vertex_colors[1]
+                col2_layer.data.foreach_set("color", color2_list)
+            mesh.update()
             #set active color
             mesh.color_attributes.render_color_index = 0
             mesh.color_attributes.active_color_index = 0
