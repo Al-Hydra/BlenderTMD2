@@ -57,13 +57,7 @@ _PS4_MORTON_DX, _PS4_MORTON_DY = _build_ps4_morton_lut()
 
 def _detile_ps4(data: bytes, width: int, height: int, bpp: int,
                 block_w: int, block_h: int, tiling_index: int) -> bytes:
-    """
-    De-tile PS4 GCN micro-tiled texture data to a linear raster.
 
-    GCN tile modes 0 (LinearGeneral) and 8 (LinearAligned) are passed through.
-    All other modes use 8×8 Morton Z-order micro-tiles (including the common
-    mode 13 = Texture_1dThin). Fully vectorised — no Python inner loops.
-    """
     if tiling_index in (0, 8):
         return data
 
@@ -202,22 +196,6 @@ class GNFTexture:
 
 
 class GNF(BrStruct):
-    """
-    PS4 GNF texture container (version 2).
-
-    Header layout (little-endian):
-      0x00  4B  magic "GNF "
-      0x04  4B  content_size — bytes from 0x08 to the data area start
-      0x08  1B  version (2)
-      0x09  1B  num_streams — number of textures in this container
-      0x0A  1B  alignment
-      0x0B  1B  reserved
-      0x0C  4B  total_stream_size — equals total file size
-      0x10  32B × num_streams  GnmTexture descriptors (8 × uint32 each);
-                dword[7] of each is repurposed to store that texture's data byte count
-      ...   padding to (0x08 + content_size)
-      <data area: num_streams textures stored contiguously>
-    """
 
     def __br_read__(self, br: 'BinaryReader') -> None:
         self.magic = br.read_str(4)
@@ -246,25 +224,3 @@ class GNF(BrStruct):
             GNFTexture(gnm, br.read_bytes(sz))
             for gnm, sz in zip(descriptors, data_sizes)
         ]
-
-
-
-if __name__ == "__main__":
-    import time
-    
-    
-    gnf_file = r"C:\Users\Hydra\Desktop\PS4_DreamClub_HostGirlOnStage\hg01_amane.gtf"
-    
-    start_time = time.time()
-    
-    with open(gnf_file, 'rb') as f:
-        br = BinaryReader(f.read())
-        gnf = GNF()
-        gnf.__br_read__(br)
-        for i, tex in enumerate(gnf.textures):
-            dds_data = tex.to_dds()
-            with open(f"output_texture_{i}.dds", 'wb') as out_f:
-                out_f.write(dds_data)
-    
-    end_time = time.time()
-    print(f"Processed {len(gnf.textures)} textures in {end_time - start_time:.3f} seconds.")
