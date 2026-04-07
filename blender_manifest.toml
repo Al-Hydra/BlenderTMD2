@@ -3,9 +3,9 @@ schema_version = "1.0.0"
 # Example of manifest file for a Blender extension
 # Change the values according to your extension
 id = "BlenderTMD2"
-version = "1.4.0"
+version = "2.0.0"
 name = "BlenderTMD2"
-tagline = "Importer/Exporter for Tamsoft TMD2 files"
+tagline = "Importer/Exporter for Tamsoft TMD/TMD2 files"
 maintainer = "Al-Hydra"
 # Supported types: "add-on", "theme"
 type = "add-on"

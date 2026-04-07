@@ -9,6 +9,7 @@ from bpy.props import (
     PointerProperty
 )
 
+from .tamLib.tmd2 import tamCRC32
 
 class TMD2ShaderParam(PropertyGroup):
     value: FloatProperty()
@@ -123,6 +124,42 @@ class TMD2ParamClipboard:
         for val in cls.param_values:
             new_param = param_collection.add()
             new_param.value = val
+
+
+class TMD2MeshClipboard:
+    name = ""
+    name_hash = ""
+    unk = 0
+    has_name = False
+    has_hash = False
+    has_extra = False
+    unk1 = 0
+    unk2 = 0
+    unk3 = 0
+
+    @classmethod
+    def copy(cls, src):
+        cls.name = src.name
+        cls.name_hash = src.name_hash
+        cls.unk = src.unk
+        cls.has_name = src.has_name
+        cls.has_hash = src.has_hash
+        cls.has_extra = src.has_extra
+        cls.unk1 = src.unk1
+        cls.unk2 = src.unk2
+        cls.unk3 = src.unk3
+
+    @classmethod
+    def paste(cls, dst):
+        dst.name = cls.name
+        dst.name_hash = cls.name_hash
+        dst.unk = cls.unk
+        dst.has_name = cls.has_name
+        dst.has_hash = cls.has_hash
+        dst.has_extra = cls.has_extra
+        dst.unk1 = cls.unk1
+        dst.unk2 = cls.unk2
+        dst.unk3 = cls.unk3
 
 
 class TMD2_OT_CopyParams(bpy.types.Operator):
@@ -299,8 +336,8 @@ class TMD2_PT_MaterialPanel(Panel):
         tmd2 = mat.tmd2_material
         
         row = layout.row(align=True)
-        row.operator("tmd2.copy_material_data", icon="COPYDOWN", text="Copy TMD2")
-        row.operator("tmd2.paste_material_data", icon="PASTEDOWN", text="Paste TMD2")
+        row.operator("tmd2.copy_material_data", icon="COPYDOWN", text="Copy Material Data")
+        row.operator("tmd2.paste_material_data", icon="PASTEDOWN", text="Paste Material Data")
         
         row = layout.row(align=True)
         row.operator("tmd2.copy_params", icon="COPYDOWN", text="Copy All Params")
@@ -314,14 +351,16 @@ class TMD2_PT_MaterialPanel(Panel):
         row = box1.row()
         row.label(text="Material Hash:")
         row = box1.row()
+        row.label(text=f"Generated Hash: {tamCRC32(mat.name)}")
+        row = box1.row()
         row.prop(tmd2, "material_hash", text = "")
         row = box1.row()
-        row = box1.row() #this only done for spacing
+        #row = box1.row() #this is only done for spacing
         row.label(text="Shader ID:")
         row = box1.row()
         row.prop(tmd2, "shader_id", text = "")
         row = box1.row()
-        row = box1.row() #this only done for spacing
+        #row = box1.row() #this is only done for spacing
         row.prop(tmd2, "unk", text = "Unknown")
 
         box = col2.box()
@@ -359,6 +398,34 @@ class TMD2_PT_MaterialPanel(Panel):
             row.prop(tmd2.textures[tmd2.texture_index], "value2",text = "Unknown 1")
 
 
+class TMD2_OT_CopyMeshData(bpy.types.Operator):
+    bl_idname = "tmd2.copy_mesh_data"
+    bl_label = "Copy TMD2 Mesh Data"
+
+    def execute(self, context):
+        obj = context.object
+        if not obj or not hasattr(obj, "tmd2_mesh"):
+            self.report({'WARNING'}, "No TMD2 mesh to copy.")
+            return {'CANCELLED'}
+        TMD2MeshClipboard.copy(obj.tmd2_mesh)
+        self.report({'INFO'}, "TMD2 mesh data copied.")
+        return {'FINISHED'}
+
+
+class TMD2_OT_PasteMeshData(bpy.types.Operator):
+    bl_idname = "tmd2.paste_mesh_data"
+    bl_label = "Paste TMD2 Mesh Data"
+
+    def execute(self, context):
+        obj = context.object
+        if not obj or not hasattr(obj, "tmd2_mesh"):
+            self.report({'WARNING'}, "No TMD2 mesh to paste into.")
+            return {'CANCELLED'}
+        TMD2MeshClipboard.paste(obj.tmd2_mesh)
+        self.report({'INFO'}, "TMD2 mesh data pasted.")
+        return {'FINISHED'}
+
+
 class TMD2_PT_MeshPanel(Panel):
     bl_idname = 'OBJECT_PT_tmd2_mesh'
     bl_label = 'TMD2 Mesh Properties'
@@ -374,6 +441,10 @@ class TMD2_PT_MeshPanel(Panel):
         layout = self.layout
         obj = context.object
         tmd2mesh = obj.tmd2_mesh
+        
+        row = layout.row(align=True)
+        row.operator("tmd2.copy_mesh_data", icon="COPYDOWN", text="Copy Mesh Data")
+        row.operator("tmd2.paste_mesh_data", icon="PASTEDOWN", text="Paste Mesh Data")
         
         row = layout.row()
         row.prop(tmd2mesh, "has_name", text = "Has Name")
@@ -484,6 +555,8 @@ material_properties = [
     TMD2_OT_PasteMaterialData,
     TMD2_OT_CopyParams,
     TMD2_OT_PasteParams,
+    TMD2_OT_CopyMeshData,
+    TMD2_OT_PasteMeshData,
     TMD2_Texture_OT_OpenDDS
     
 ]
